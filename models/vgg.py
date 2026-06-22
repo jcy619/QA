@@ -27,7 +27,8 @@ class VGG(nn.Module):
     def __init__(self, features, num_classes=1000, init_weights=True):
         super(VGG, self).__init__()
         self.features = features
-        # self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        
+        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
         # self.classifier = nn.Sequential(
         #     nn.Linear(512 * 7 * 7, 4096),
         #     nn.ReLU(True),
@@ -36,29 +37,33 @@ class VGG(nn.Module):
         #     nn.ReLU(True),
         #     nn.Dropout(),
         #     nn.Linear(4096, num_classes),
-        #)
+            
+        # )
         
+        self.change_dim = nn.Linear(512,512)
         self.queryhead = QueryHead(num_classes=num_classes,
                                             num_queries=1,
                                             embed_dim=512,
                                             dec_layers=1,
-                                            num_heads=16,
+                                            num_heads=8,
                                             mlp_ratio=2. )
 
         if init_weights:
             self._initialize_weights()
 
     def forward(self, x):
-       
-        x = self.features(x)
-        #print(x.shape)
-        #x = self.avgpool(x)
-        #print(x.shape)
+        x = self.features(x) #256,512,4,4
+        x = self.avgpool(x) #[256, 512, 7, 7]
         #x = x.view(x.size(0), -1)
+        #print(x.shape) #1,512,7,7
+        # x = self.classifier(x)
+        
+        
         x = x.flatten(2,3) 
-        x = x.permute(0,2,1)
-        #print(x.shape)
-        #x = self.classifier(x)
+        x = x.permute(0,2,1) #256,49,512
+       
+        
+        x = self.change_dim(x)
         x = self.queryhead(x)
         return x
 
@@ -93,10 +98,11 @@ def make_layers(cfg, batch_norm=False):
 
 
 cfgs = {
-    'A': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+    'A': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
     'B': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+    'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 512, 512, 512],
+    #'E': [64, 64 ,'M',128, 128, 'M', 256, 256, 256, 256, 'M',512, 512, 512, 512, 'M', 512, 512, 512, 512,'M'],
+    'E': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M',512, 512, 512, 512,],
 }
 
 
@@ -185,7 +191,7 @@ def vgg19(pretrained=False, progress=True, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _vgg('vgg19', 'E', False, pretrained, progress, **kwargs)
+    return _vgg('vgg19', 'D', False, pretrained, progress, **kwargs)
 
 
 def vgg19_bn(pretrained=False, progress=True, **kwargs):
