@@ -8,6 +8,9 @@ class DecoderLayer(nn.Module):
         self.decoder_dim = dim
         self.num_heads = num_heads
         self.self_attn = nn.MultiheadAttention(self.decoder_dim,self.num_heads,dropout)
+
+        self.gate_proj = nn.Linear(dim, dim)
+        self.sigmoid = nn.Sigmoid()
         self.multi_attn = nn.MultiheadAttention(self.decoder_dim,self.num_heads,dropout)
 
         dim_feedforward = int(mlp_ratio*self.decoder_dim)
@@ -15,7 +18,7 @@ class DecoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, self.decoder_dim)
 
-        self.norm1 = nn.LayerNorm(self.decoder_dim).cuda()
+        self.norm1 = nn.LayerNorm(self.decoder_dim)
         self.norm2 = nn.LayerNorm(self.decoder_dim)
         self.norm3 = nn.LayerNorm(self.decoder_dim)
 
@@ -29,23 +32,22 @@ class DecoderLayer(nn.Module):
         tgt = x['tgt']
         memory = x['x']
         query_pos = x['query_pos']
-       
-       
-        q = k = tgt+query_pos
+    
+    
+        q = k = query_pos
         
-        
-        tgt2,weight = self.self_attn(q, k, value=tgt, attn_mask=None, key_padding_mask=None)
-        
-        tgt = tgt + self.dropout1(tgt2)
-        
+        attn_out, weight = self.self_attn(q, k, value=tgt)
+
+        gate = self.sigmoid(self.gate_proj(attn_out))
+        tgt = tgt + self.dropout1(attn_out * (1 + gate))
         tgt = self.norm1(tgt)
         
-        query = tgt+query_pos
+        query = tgt
         
         key = value = memory
         tgt2 = self.multi_attn(query=query, key=key, value=value,attn_mask=None, key_padding_mask=None)[0]  # num_queries,bs,c
         tgt = tgt + self.dropout2(tgt2)
-        tgt = self.norm2(tgt2)
+        tgt = self.norm2(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
@@ -65,6 +67,7 @@ class QueryHead(nn.Module):
         self.mlp_ratio = mlp_ratio
 
         self.query_embed = nn.Embedding(self.num_queries,self.embed_dim)
+        self.tgt_proj = nn.Linear(self.embed_dim, self.embed_dim)
         
         self.decoder_blocks = nn.Sequential(*[
             DecoderLayer(
@@ -76,17 +79,25 @@ class QueryHead(nn.Module):
             )
             for i in range(self.dec_layers)])
         self.head = nn.Linear(self.embed_dim,self.num_classes) if num_classes > 0 else nn.Identity()
-        
+        #self.avgpool = nn.AdaptiveAvgPool1d(1)
+        #self.head = nn.Linear(self.embed_dim,1)
         
 
     def forward(self,x):
         bs,N,c = x.shape
         
-        query_embed = self.query_embed.weight
-        query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1).cuda()
-        tgt = torch.zeros_like(query_embed).cuda()
+        query_embed = self.query_embed.weight.unsqueeze(1).repeat(1, bs, 1).to(x.device)
+
+        # ===== mean + max 融合 =====
+        mean_feat = x.mean(dim=1)          # (bs, c)
+        max_feat = x.max(dim=1).values     # (bs, c)
+        global_feat = mean_feat + max_feat # (bs, c)
+
+        tgt = self.tgt_proj(global_feat).unsqueeze(0)   # (1, bs, c)
+        tgt = tgt.repeat(self.num_queries, 1, 1)        # (num_queries, bs, c)
+
         
-        x = x.permute(1, 0, 2).cuda()
+        x = x.permute(1, 0, 2)
         
         input = {"tgt": tgt, 'x': x, "query_pos": query_embed}
         
@@ -94,11 +105,11 @@ class QueryHead(nn.Module):
         x = self.decoder_blocks(input)
         
         tgt = x['tgt'].permute(1, 0, 2)  # (bs,nq,embed_dim)
-        
+        #print(tgt.shape)
         x = self.head(tgt) #(bs,nq,1)
-       
+        #print(x.shape)
         x =x.flatten(1,2) #(bs,1)
-       
+        #print(x.shape)
         return x
 
 
