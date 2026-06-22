@@ -143,28 +143,28 @@ class ResNet(nn.Module):
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=1, padding=3,
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1,
                                bias=False)#stride=2
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1) ###
-        self.layer1 = self._make_layer(block, 64, layers[0])
+        #self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1) ###
+        self.layer1 = self._make_layer(block, 64, layers[0]) 
+                                       
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])####
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, #stride = 2
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-                                       dilate=replace_stride_with_dilation[2])
-        # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+                                       dilate=replace_stride_with_dilation[2]) #2
+        #self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.change_dim = nn.Linear(512 * block.expansion,512)
         
         self.queryhead = QueryHead(num_classes=num_classes,
                                             num_queries=1,
                                             embed_dim=512,
-                                            #num_patches=16,
                                             dec_layers=1,
-                                            num_heads=16,
+                                            num_heads=8,
                                             mlp_ratio=2. )
 
 
@@ -212,12 +212,12 @@ class ResNet(nn.Module):
 
     def _forward_impl(self, x):
         # See note [TorchScript super()]
-   
+
         x = self.conv1(x)
         
         x = self.bn1(x)
         x = self.relu(x)
-        x = self.maxpool(x)
+        #x = self.maxpool(x)
         
         x = self.layer1(x)
        
@@ -225,15 +225,10 @@ class ResNet(nn.Module):
         
         x = self.layer3(x)
         
-        x = self.layer4(x)
-
-        
-        
+        x = self.layer4(x) 
         x = x.flatten(2,3) #(8,1024,4)
         x = x.permute(0,2,1)
-        
-        #x = self.avgpool(x)
-        #print("8",x.shape)
+        #print(x.shape)
         
         #x = torch.flatten(x, 1)
         #x = self.fc(x)
@@ -242,7 +237,7 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         x = self._forward_impl(x)
-        print(x.shape)
+        #print(x.shape)
         x = self.change_dim(x)
         x = self.queryhead(x)
         return x
