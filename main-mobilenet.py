@@ -33,9 +33,9 @@ def init_parser():
     parser = argparse.ArgumentParser(description='CIFAR10 quick training script')
 
     # Data args
-    parser.add_argument('--data_path', default='data', type=str, help='dataset path')
+    parser.add_argument('--data_path', default='./', type=str, help='dataset path')
     
-    parser.add_argument('--dataset', default='CIFAR10', choices=['CIFAR10', 'CIFAR100', 'T-IMNET', 'SVHN'], type=str, help='Image Net dataset path')
+    parser.add_argument('--dataset', default='CINIC', choices=['CIFAR10', 'CIFAR100', 'T-IMNET', 'SVHN'], type=str, help='Image Net dataset path')
 
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N', help='number of data loading workers (default: 4)')
 
@@ -44,11 +44,11 @@ def init_parser():
     # Optimization hyperparams
     parser.add_argument('--epochs', default=100, type=int, metavar='N', help='number of total epochs to run')
     
-    parser.add_argument('--warmup', default=10, type=int, metavar='N', help='number of warmup epochs')
+    parser.add_argument('--warmup', default=10, type=int, metavar='N', help='number of warmup epochs') #10
     
     parser.add_argument('-b', '--batch_size', default=256, type=int, metavar='N', help='mini-batch size (default: 128)', dest='batch_size')
     
-    parser.add_argument('--lr', default=0.003, type=float, help='initial learning rate')
+    parser.add_argument('--lr', default=0.1, type=float, help='initial learning rate')
     
     parser.add_argument('--weight-decay', default=5e-2, type=float, help='weight decay (default: 1e-4)')
 
@@ -103,10 +103,10 @@ def init_parser():
     
     parser.add_argument('--re_r1', default=0.3, type=float, help='aspect of erasing area')
     
-    parser.add_argument('--is_LSA', action='store_true', help='Locality Self-Attention')
+    parser.add_argument('--is_LSA', default=False, help='Locality Self-Attention')
     
-    parser.add_argument('--is_SPT', action='store_true', help='Shifted Patch Tokenization')
-
+    parser.add_argument('--is_SPT', default=False, help='Shifted Patch Tokenization')
+    
     return parser
 
 
@@ -117,10 +117,23 @@ def main(args):
 
     data_info = datainfo(logger, args)
     
+    
     model = create_model(data_info['img_size'], data_info['n_classes'], args)
+    
+
     print(model)
     model.cuda(args.gpu)  
     
+    # from thop import profile
+    # def GFLOPS(model):
+    #     inputdata = torch.randn(1, 3, 64, 64)  #这里可以修改
+    #     if torch.cuda.is_available():
+    #         model1 = model.cuda()
+    #         inputdata = inputdata.cuda()
+    #         flops, params = profile(model1, inputs=(inputdata, ))
+    #         print("GFLOPs :{:.2f}, Params : {:.2f}".format(flops/1e6,params/1e6)) #flops单位G，para单位M
+    # GFLOPS(model)
+        
     print(Fore.GREEN+'*'*80)
     logger.debug(f"Creating model: {model_name}")    
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -172,6 +185,7 @@ def main(args):
             transforms.RandomHorizontalFlip(),
             transforms.RandomCrop(data_info['img_size'], padding=4)
             ]
+   
     
     if args.aa == True:
         print(Fore.YELLOW+'*'*80)
@@ -202,6 +216,7 @@ def main(args):
     augmentations += [                
             transforms.ToTensor(),
             *normalize]  
+    
 
     if args.re > 0:
         from utils.random_erasing import RandomErasing
@@ -227,7 +242,13 @@ def main(args):
         Training
     '''
     
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    #optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.SGD(
+    model.parameters(),
+    lr=args.lr,
+    momentum=0.9,
+    weight_decay=5e-4,
+    nesterov=True)
     scheduler = build_scheduler(args, optimizer, len(train_loader))
     
     #summary(model, (3, data_info['img_size'], data_info['img_size']))
@@ -348,17 +369,19 @@ def train(train_loader, model, criterion, optimizer, epoch, scheduler,  args):
                 else:
                     images, y_a, y_b, lam = mixup_data(images, target, args)
                     output = model(images)
-                    
+                    #print(weight.shape)
                     loss = mixup_criterion(criterion, output, y_a, y_b, lam) 
                     
             else:
                 output = model(images)
+                
                 
                 loss = criterion(output, target) 
           
         # No Mix
         else:
             output = model(images)
+            
                                 
             loss = criterion(output, target)
             
